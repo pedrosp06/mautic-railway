@@ -10,9 +10,17 @@
 #   * an idempotent first-boot `mautic:install`, so a template deploy needs no
 #     manual setup step
 #
-# The tag is pinned because the web, worker and cron services all build from
-# this file and must run the same Mautic release against one database schema.
-ARG MAUTIC_TAG=7.1.3-apache
+# The tag is pinned for two reasons. The web, worker and cron services all build
+# from this file and must run the same Mautic release against one schema; and
+# 7.1.3 — which `latest` currently points at — is unusable. Its image was built
+# on 2026-07-07, four days after Twig 3.28.0 changed include() to return a
+# Twig\Markup, while Mautic's OverrideIncludeExtension still declared a `string`
+# return type, so every page render dies with a TypeError and a 500. Upstream
+# has since widened the type to `string|Markup`; lift this pin to the first
+# release that carries that fix. 7.1.2 is the newest release without the bug and
+# is itself the security release (CVE-2026-4776, CVE-2026-9557) — 7.1.3 added
+# only bug fixes and no migrations, so nothing security-related is given up.
+ARG MAUTIC_TAG=7.1.2-apache
 FROM mautic/mautic:${MAUTIC_TAG}
 
 COPY --chmod=755 railway-entrypoint.sh /railway-entrypoint.sh

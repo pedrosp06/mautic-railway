@@ -64,3 +64,11 @@ The base tag is pinned in the `Dockerfile`. Web, worker and cron all build from
 this repository and run migrations against one schema, so they must resolve to
 the same Mautic release; a floating tag lets a redeploy of one service land on a
 different build from the other two.
+
+The pin is also holding back one release. `mautic/mautic:7.1.3-apache`, which
+`latest` points at, was built four days after Twig 3.28.0 changed `include()` to
+return a `Twig\Markup` — Mautic's `OverrideIncludeExtension` still declared a
+`string` return type, so every page render throws a `TypeError` and returns 500.
+Upstream widened the type after 7.1.3 shipped; the pin can move to the first
+release carrying that fix. 7.1.2 gives up only bug fixes: it is itself the
+security release, and no migrations changed between the two.
