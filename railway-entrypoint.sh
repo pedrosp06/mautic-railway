@@ -243,4 +243,19 @@ case "$ROLE" in
     ;;
 esac
 
+# Mautic writes application errors to a rotating file under var/logs and sends
+# nothing to stdout, so on Railway a 500 would otherwise leave no trace at all.
+# Mirror the newest log file into the container's output.
+if [ "$ROLE" = "mautic_web" ]; then
+  (
+    newest=$(ls -1t "${APP_DIR}/var/logs/"*.php 2>/dev/null | head -n 1)
+    [ -n "$newest" ] && tail -n 100 "$newest"
+    while :; do
+      newest=$(ls -1t "${APP_DIR}/var/logs/"*.php 2>/dev/null | head -n 1)
+      [ -n "$newest" ] && tail -n 0 -F "$newest"
+      sleep 10
+    done
+  ) &
+fi
+
 exec /entrypoint.sh "$@"
