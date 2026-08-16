@@ -1,82 +1,66 @@
 # Mautic on Railway
 
-Deployment wrapper around the official [`mautic/mautic`](https://hub.docker.com/r/mautic/mautic)
-image, for running Mautic 7 on [Railway](https://railway.com) as three services that
-share one database.
+A thin wrapper over the official [`mautic/mautic`](https://hub.docker.com/r/mautic/mautic)
+image that makes Mautic deploy on Railway with no manual setup step.
 
-The upstream image is unmodified. Everything here is boot-time glue that closes the gap
-between upstream's `docker-compose` shape and Railway's platform constraints.
+One image serves all three Mautic roles; the role is selected per service with
+`DOCKER_MAUTIC_ROLE` (`mautic_web`, `mautic_worker`, `mautic_cron`), exactly as
+upstream's own compose files do.
 
-## Services
+## What the wrapper adds
 
-All three build this same repository and differ only by `DOCKER_MAUTIC_ROLE`:
+| | Why |
+|---|---|
+| Apache MPM normalisation | Current `php:*-apache` images enable `mpm_event`/`mpm_worker` alongside the `mpm_prefork` that `mod_php` needs, and Apache aborts on *More than one MPM loaded*. It has to be redone at container start — the build's `/etc/apache2` is not what runs. |
+| Apache listens on `$PORT` | Railway probes the port named by `PORT`. |
+| One consolidated volume | Railway allows a service exactly one volume; the image wants `config`, `docroot/media` and `var/logs` persisted. They become symlinks into the single mount, seeded once from the image's own content. |
+| `config/parameters_local.php` written at boot | `trusted_proxies`, HSTS and the secure-cookie decision are read from the config *files*, never from the environment. |
+| Idempotent `mautic:install` | A template deploy has no manual steps. With `MAUTIC_ADMIN_EMAIL` and `MAUTIC_ADMIN_PASSWORD` set, the first boot installs Mautic and creates the admin; later boots detect the existing install and do nothing. Without them, Mautic's own web installer runs instead. |
+| Worker and cron config from the environment | Those roles normally read the web service's shared config volume, which Railway cannot express. They build an equivalent config from their service variables and wait for the schema before starting. |
 
-| Role | `DOCKER_MAUTIC_ROLE` | Public | Volume | What it runs |
-|---|---|---|---|---|
-| web | `mautic_web` | yes | `/data` | Apache + mod_php serving the UI, tracking and forms |
-| cron | `mautic_cron` | no | — | segment, campaign and trigger schedules |
-| worker | `mautic_worker` | no | — | supervisord running `messenger:consume` for the email, hit and failed queues |
+`trusted_proxies` deliberately trusts every hop. Railway's edge overwrites a
+client-supplied `X-Forwarded-For` and appends its own entry, and that entry is a
+public address that changes per request — trusting all hops is what makes
+Symfony return the leftmost entry, which is the real client.
 
-A fourth service, MySQL 8.4, holds all application state and also backs the message
-queue.
+## Variables
 
-## Why this wrapper exists
-
-**Configuration is rendered from environment variables.** Upstream shares Mautic's
-`config/` directory between the web, cron and worker containers through a bind mount.
-Railway volumes are strictly 1:1 with a service and cannot be shared, so
-`render-local-config.php` rebuilds `local.php` at boot in every role from Railway
-variables. Keys backed by a variable are re-applied on each boot; anything else that
-Mautic's Configuration UI wrote to the web role's volume is preserved.
-
-**First boot installs Mautic.** A Railway template deploy has no manual steps, so the
-web role runs `mautic:install` non-interactively when it finds no schema, creating the
-database structure and the first admin user from `MAUTIC_ADMIN_*`. Mautic decides it is
-already installed purely from `local.php`, which this wrapper generates — so the check
-is made against the database instead. `db_backup_tables` is pinned off so a redeploy can
-never rename live tables to `bak_*`.
-
-**Apache's MPM is normalised at container start.** `php:*-apache` images currently ship
-with `mpm_event`/`mpm_worker` enabled alongside the `mpm_prefork` that `mod_php`
-requires, and Apache aborts with `AH00534: More than one MPM loaded`. A build layer
-cannot fix it — the running container's `/etc/apache2` is not the build's — so the
-entrypoint re-checks it on every start and validates with `apache2ctl -t`.
-
-**Startup ordering is explicit.** Railway has no service dependency ordering. The cron
-and worker roles wait for the database to accept connections and for the web role to
-finish creating the schema before handing over to the image's entrypoint.
-
-## Configuration
-
-Required:
+Required on all three Mautic services:
 
 | Variable | Notes |
 |---|---|
-| `MAUTIC_DB_HOST`, `MAUTIC_DB_PORT`, `MAUTIC_DB_DATABASE`, `MAUTIC_DB_USER`, `MAUTIC_DB_PASSWORD` | reference the MySQL service |
-| `MAUTIC_SITE_URL` | full public URL, including scheme |
-| `MAUTIC_SECRET_KEY` | encrypts credentials Mautic stores in the database; must be identical across all three roles and stable across restarts |
-| `MAUTIC_ADMIN_EMAIL`, `MAUTIC_ADMIN_PASSWORD` | read only by the first install |
-| `DOCKER_MAUTIC_ROLE` | `mautic_web`, `mautic_cron` or `mautic_worker` |
+| `DOCKER_MAUTIC_ROLE` | `mautic_web`, `mautic_worker` or `mautic_cron` |
+| `MAUTIC_DB_HOST` `MAUTIC_DB_PORT` `MAUTIC_DB_DATABASE` `MAUTIC_DB_USER` `MAUTIC_DB_PASSWORD` | MySQL connection |
+| `MAUTIC_SITE_URL` | Full public URL, including scheme |
+| `MAUTIC_SECRET_KEY` | Must be identical on all three; it encrypts stored integration credentials |
 
-Optional, each applied only when set: `MAUTIC_MAILER_DSN`, `MAUTIC_MAILER_FROM_NAME`,
-`MAUTIC_MAILER_FROM_EMAIL`, `MAUTIC_MESSENGER_DSN_EMAIL`, `MAUTIC_MESSENGER_DSN_HIT`,
-`MAUTIC_MESSENGER_DSN_FAILED`, `MAUTIC_TRUSTED_PROXIES`, `MAUTIC_DB_TABLE_PREFIX`,
-`MAUTIC_ADMIN_USERNAME`, `MAUTIC_ADMIN_FIRSTNAME`, `MAUTIC_ADMIN_LASTNAME`,
-`RAILWAY_DATA_DIR` (defaults to `/data`).
+Web service only:
 
-Because these are re-applied on every boot, changing one of them in Mautic's
-Configuration UI will not survive a redeploy — change the Railway variable instead.
+| Variable | Notes |
+|---|---|
+| `PORT` | Port Apache listens on |
+| `MAUTIC_ADMIN_EMAIL` `MAUTIC_ADMIN_PASSWORD` | First admin, used once on the first boot |
+| `MAUTIC_ADMIN_USERNAME` `MAUTIC_ADMIN_FIRSTNAME` `MAUTIC_ADMIN_LASTNAME` | Optional, default `admin` / `Admin` / `User` |
 
-## Queueing
+Recommended on all three, to give the worker tier something to consume:
 
-Mautic 7 dropped `symfony/amqp-messenger`; the Doctrine transport is the only queue
-backend it still ships. Setting `MAUTIC_MESSENGER_DSN_EMAIL` and
-`MAUTIC_MESSENGER_DSN_HIT` to `doctrine://default` is what gives the worker role
-something to consume — left unset, Mautic sends synchronously and the worker idles. The
-queue lives in the `messenger_messages` table, so watch database size under heavy
-sending.
+```
+MAUTIC_MESSENGER_DSN_EMAIL=doctrine://default
+MAUTIC_MESSENGER_DSN_HIT=doctrine://default
+MAUTIC_MESSENGER_DSN_FAILED=doctrine://default?queue_name=failed
+MAUTIC_MAILER_DSN=smtp://<your mail host>:<port>
+```
 
-## Licence
+Left unset, the messenger DSNs default to `sync://` and email is sent inside the
+web request instead of by the worker.
 
-Mautic is GPL-3.0. This wrapper carries no separate licence beyond that of the files it
-builds on.
+Any other Mautic setting can be supplied the same way: the parameter `foo_bar`
+is read from `MAUTIC_FOO_BAR`, and an environment variable wins over the value
+stored in `config/local.php`.
+
+## Version
+
+The base tag is pinned in the `Dockerfile`. Web, worker and cron all build from
+this repository and run migrations against one schema, so they must resolve to
+the same Mautic release; a floating tag lets a redeploy of one service land on a
+different build from the other two.
