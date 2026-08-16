@@ -26,6 +26,7 @@ link_into_volume() {
   fi
   rm -rf "$src"
   ln -s "$dst" "$src"
+  chown -h www-data:www-data "$src"
 }
 
 if [ -d "$DATA_DIR" ]; then
@@ -172,8 +173,16 @@ report_writability() {
   as_www_data sh -c 'touch /var/www/html/config/.probe && echo "[railway] probe write: ok" || echo "[railway] probe write: denied"'
   rm -f "${CONFIG_DIR}/.probe" 2>/dev/null || true
   as_www_data php -r '
-    foreach (["/var/www/html/config", "/var/www/html/var/cache", "/var/www/html/var/logs"] as $p) {
-      printf("[railway] writable %s: %s\n", $p, is_writable($p) ? "yes" : "no");
+    printf("[railway] php uid=%d euid=%d gid=%d egid=%d groups=%s\n",
+      posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid(),
+      implode(",", posix_getgroups()));
+    foreach (["/var/www/html/config", "/data/config", "/var/www/html/var/cache", "/var/www/html/var/logs"] as $p) {
+      clearstatcache(true, $p);
+      $s = @stat($p);
+      printf("[railway] %s: writable=%s exists=%s uid=%s mode=%s real=%s\n",
+        $p, is_writable($p) ? "yes" : "no", file_exists($p) ? "yes" : "no",
+        $s ? $s["uid"] : "-", $s ? sprintf("%o", $s["mode"] & 07777) : "-",
+        realpath($p) ?: "-");
     }
   '
 }
