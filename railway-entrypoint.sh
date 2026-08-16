@@ -167,6 +167,10 @@ as_www_data() {
 report_writability() {
   log "paths: config -> $(readlink -f "$CONFIG_DIR" 2>/dev/null || echo '?')"
   ls -ldn "$CONFIG_DIR" "${APP_DIR}/var/cache" "${APP_DIR}/var/logs" 2>&1 | sed 's/^/[railway] /'
+  ls -ldn "$DATA_DIR" "${DATA_DIR}"/* 2>&1 | sed 's/^/[railway] /'
+  ls -lan "${DATA_DIR}/config" 2>&1 | sed 's/^/[railway] /'
+  as_www_data sh -c 'touch /var/www/html/config/.probe && echo "[railway] probe write: ok" || echo "[railway] probe write: denied"'
+  rm -f "${CONFIG_DIR}/.probe" 2>/dev/null || true
   as_www_data php -r '
     foreach (["/var/www/html/config", "/var/www/html/var/cache", "/var/www/html/var/logs"] as $p) {
       printf("[railway] writable %s: %s\n", $p, is_writable($p) ? "yes" : "no");
