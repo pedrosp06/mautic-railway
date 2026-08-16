@@ -34,7 +34,13 @@ if [ -d "$DATA_DIR" ]; then
   link_into_volume "${APP_DIR}/docroot/media"       "${DATA_DIR}/media"
   link_into_volume "${APP_DIR}/var/logs"            "${DATA_DIR}/logs"
   chown -R www-data:www-data "$DATA_DIR"
+  chmod -R u+rwX,g+rwX "$DATA_DIR"
 fi
+
+# The image chowns var/ at build time, but the directories Symfony writes to are
+# created lazily, so make sure they exist and belong to www-data either way.
+mkdir -p "${APP_DIR}/var/cache" "${APP_DIR}/var/tmp" "${APP_DIR}/var/logs"
+chown -R www-data:www-data "${APP_DIR}/var"
 
 # --------------------------------------------------------------------------
 # Apache. Two fixes, both web-role only.
@@ -155,6 +161,19 @@ as_www_data() {
          env HOME=/var/www "$@" )
 }
 
+# Mautic's installer refuses to start unless it can write its config, cache and
+# log directories, and reports only an untranslated placeholder for the path it
+# tried. Print what it will actually see, as the user it will actually run as.
+report_writability() {
+  log "paths: config -> $(readlink -f "$CONFIG_DIR" 2>/dev/null || echo '?')"
+  ls -ldn "$CONFIG_DIR" "${APP_DIR}/var/cache" "${APP_DIR}/var/logs" 2>&1 | sed 's/^/[railway] /'
+  as_www_data php -r '
+    foreach (["/var/www/html/config", "/var/www/html/var/cache", "/var/www/html/var/logs"] as $p) {
+      printf("[railway] writable %s: %s\n", $p, is_writable($p) ? "yes" : "no");
+    }
+  '
+}
+
 case "$ROLE" in
   mautic_web)
     if installed_marker_present; then
@@ -169,6 +188,7 @@ case "$ROLE" in
         write_local_php
       elif [ -n "${MAUTIC_ADMIN_EMAIL:-}" ] && [ -n "${MAUTIC_ADMIN_PASSWORD:-}" ]; then
         log "empty database; running mautic:install for ${MAUTIC_SITE_URL}"
+        report_writability
         as_www_data php bin/console mautic:install "${MAUTIC_SITE_URL}" \
           --force --no-interaction \
           --db_host="${MAUTIC_DB_HOST}" \
