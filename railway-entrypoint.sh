@@ -243,6 +243,18 @@ case "$ROLE" in
     ;;
 esac
 
+# Register plugins shipped in the image (e.g. the Amazon SNS callback). Web role
+# only, and only once Mautic is installed: the reload writes to the database.
+# Always run as www-data — a root-run console leaves a root-owned cache that
+# takes the site down. Both steps are idempotent and must not block boot.
+if [ "$ROLE" = "mautic_web" ] && installed_marker_present; then
+  log "reloading plugins"
+  as_www_data php bin/console mautic:plugins:reload --no-interaction \
+    || log "plugins:reload failed; continuing"
+  as_www_data php bin/console cache:clear --no-interaction \
+    || log "cache:clear failed; continuing"
+fi
+
 # Mautic writes application errors to a rotating file under var/logs and sends
 # nothing to stdout, so on Railway a 500 would otherwise leave no trace at all.
 # Mirror the newest log file into the container's output.

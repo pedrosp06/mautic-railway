@@ -58,6 +58,48 @@ Any other Mautic setting can be supplied the same way: the parameter `foo_bar`
 is read from `MAUTIC_FOO_BAR`, and an environment variable wins over the value
 stored in `config/local.php`.
 
+## Bounces e reclamações via SNS
+
+A imagem inclui `symfony/amazon-mailer` e o plugin
+[`matbcvo/mautic-amazon-sns-callback`](https://github.com/matbcvo/mautic-amazon-sns-callback)
+(Mautic 7), instalados no build em `docroot/plugins`. O entrypoint roda
+`mautic:plugins:reload` e `cache:clear` como `www-data` a cada boot do serviço
+web, então o plugin é registrado sem passo manual.
+
+Variáveis (todas as três, web/worker/cron — nunca versione o valor):
+
+```
+MAUTIC_MAILER_DSN=ses+smtp://USUARIO:SENHA_URL_ENCODED@default?region=sa-east-1
+```
+
+Use as **credenciais SMTP do SES** (geradas em *SES → SMTP settings → Create
+SMTP credentials*), não chaves de API/IAM. A senha SMTP deve ir URL-encoded no
+DSN (`+`, `/` e `=` precisam ser codificados). Troque `sa-east-1` pela região
+do seu SES.
+
+O `smtp://host:porta` genérico continua funcionando como fallback para enviar
+e-mail, mas só `ses+smtp` (também aceitos pelo plugin: `ses+api`, `ses+https`)
+identifica a mensagem como SES para o tratamento de bounces e reclamações.
+
+Rota de callback: `POST https://<MAUTIC_SITE_URL>/mailer/callback`
+
+Passo a passo no AWS:
+
+1. **SES → Identities → sua identidade → Notifications**: configure *Feedback
+   notifications* (Bounce e Complaint) apontando para um tópico SNS, e desligue
+   *Include original headers* se não precisar deles.
+2. **SNS → Topics → Create topic** (tipo Standard), ou use o tópico do passo 1.
+3. No tópico: **Create subscription** → Protocol `HTTPS` → Endpoint
+   `https://<seu-dominio>/mailer/callback`.
+4. O plugin confirma a inscrição automaticamente; o status deve virar
+   *Confirmed*. Se ficar *Pending*, veja `var/logs` do serviço web.
+5. Teste enviando para `bounce@simulator.amazonses.com` e
+   `complaint@simulator.amazonses.com`; o contato deve ficar como *Do Not
+   Contact* em Mautic.
+
+O endpoint precisa ser publicamente acessível (sem autenticação e sem bloqueio
+de firewall/WAF) para o SNS.
+
 ## Version
 
 The base tag is pinned in the `Dockerfile`. Web, worker and cron all build from
