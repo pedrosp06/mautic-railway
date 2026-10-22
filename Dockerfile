@@ -34,9 +34,18 @@ WORKDIR /var/www/html
 # --no-scripts: Mautic's post-install hook runs `npm ci` and webpack, which gets
 # the Railway builder OOM-killed (exit 255). The official image already ships the
 # compiled assets and the plugin has no front-end, so the hook is not needed.
-ENV COMPOSER_MEMORY_LIMIT=-1
+#
+# COMPOSER_ALLOW_SUPERUSER: the build runs as root. Composer silently skips the
+# root check only when it detects Docker; Railway's builder is not detected, so
+# without this it disables plugins "for safety" — including composer/installers,
+# which places mautic/core-lib in docroot/app. With it off, the install reinstalls
+# all 58 mautic/* packages under vendor/ and bin/console dies on a false include.
+ENV COMPOSER_MEMORY_LIMIT=-1 \
+    COMPOSER_ALLOW_SUPERUSER=1
 RUN composer require symfony/amazon-mailer:7.4.17 matbcvo/mautic-amazon-sns-callback:3.0.2 \
         --no-scripts --no-interaction --no-progress \
+ && test ! -e vendor/mautic/core-lib \
+ && php -r 'require "vendor/autoload.php"; $f = (new ReflectionClass("AppKernel"))->getFileName(); if ($f !== "/var/www/html/docroot/app/AppKernel.php") { fwrite(STDERR, "AppKernel loads from $f\n"); exit(1); }' \
  && chown -R www-data:www-data vendor docroot/plugins docroot/media composer.json composer.lock \
  && composer clear-cache --no-interaction
 
