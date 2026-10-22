@@ -23,6 +23,18 @@
 ARG MAUTIC_TAG=7.1.2-apache
 FROM mautic/mautic:${MAUTIC_TAG}
 
+# Amazon SES bounce/complaint handling over SNS: the Symfony SES transport plus
+# the Mautic plugin that exposes the /mailer/callback endpoint. Installed at
+# build time (as root, like the rest of the image's code) so web, worker and
+# cron all carry the same vendor tree. Ownership is handed back to www-data
+# because the app writes to these paths at runtime.
+USER root
+WORKDIR /var/www/html
+RUN composer require symfony/amazon-mailer matbcvo/mautic-amazon-sns-callback \
+        --no-interaction --no-progress \
+ && chown -R www-data:www-data vendor docroot/plugins docroot/media composer.json composer.lock \
+ && composer clear-cache --no-interaction
+
 COPY --chmod=755 railway-entrypoint.sh /railway-entrypoint.sh
 
 # The upstream image already runs as root and drops to www-data itself; the
