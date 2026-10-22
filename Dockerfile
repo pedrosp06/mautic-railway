@@ -30,7 +30,7 @@ FROM mautic/mautic:${MAUTIC_TAG}
 # because the app writes to these paths at runtime.
 USER root
 WORKDIR /var/www/html
-RUN composer require symfony/amazon-mailer matbcvo/mautic-amazon-sns-callback \
+RUN composer require symfony/amazon-mailer:7.4.17 matbcvo/mautic-amazon-sns-callback:3.0.2 \
         --no-interaction --no-progress \
  && chown -R www-data:www-data vendor docroot/plugins docroot/media composer.json composer.lock \
  && composer clear-cache --no-interaction

@@ -69,11 +69,17 @@ web, então o plugin é registrado sem passo manual.
 Variáveis (todas as três, web/worker/cron — nunca versione o valor):
 
 ```
-MAUTIC_MAILER_DSN=ses+api://<ACCESS_KEY>:<SECRET_KEY>@default?region=<regiao-ses>
+MAUTIC_MAILER_DSN=ses+smtp://USUARIO:SENHA_URL_ENCODED@default?region=sa-east-1
 ```
 
-Esquemas aceitos pelo plugin: `ses+smtp`, `ses+api`, `ses+https`. Use as
-credenciais de um usuário IAM com permissão de envio no SES.
+Use as **credenciais SMTP do SES** (geradas em *SES → SMTP settings → Create
+SMTP credentials*), não chaves de API/IAM. A senha SMTP deve ir URL-encoded no
+DSN (`+`, `/` e `=` precisam ser codificados). Troque `sa-east-1` pela região
+do seu SES.
+
+O `smtp://host:porta` genérico continua funcionando como fallback para enviar
+e-mail, mas só `ses+smtp` (também aceitos pelo plugin: `ses+api`, `ses+https`)
+identifica a mensagem como SES para o tratamento de bounces e reclamações.
 
 Rota de callback: `POST https://<MAUTIC_SITE_URL>/mailer/callback`
 
