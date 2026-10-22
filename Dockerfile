@@ -30,8 +30,13 @@ FROM mautic/mautic:${MAUTIC_TAG}
 # because the app writes to these paths at runtime.
 USER root
 WORKDIR /var/www/html
+#
+# --no-scripts: Mautic's post-install hook runs `npm ci` and webpack, which gets
+# the Railway builder OOM-killed (exit 255). The official image already ships the
+# compiled assets and the plugin has no front-end, so the hook is not needed.
+ENV COMPOSER_MEMORY_LIMIT=-1
 RUN composer require symfony/amazon-mailer:7.4.17 matbcvo/mautic-amazon-sns-callback:3.0.2 \
-        --no-interaction --no-progress \
+        --no-scripts --no-interaction --no-progress \
  && chown -R www-data:www-data vendor docroot/plugins docroot/media composer.json composer.lock \
  && composer clear-cache --no-interaction
 
