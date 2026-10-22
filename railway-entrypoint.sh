@@ -64,6 +64,19 @@ if [ "$ROLE" = "mautic_web" ]; then
   sed -ri "s!<VirtualHost \\*:[0-9]+>!<VirtualHost *:${APACHE_PORT}>!" /etc/apache2/sites-available/*.conf
   grep -q '^ServerName ' /etc/apache2/apache2.conf || echo 'ServerName localhost' >> /etc/apache2/apache2.conf
   log "apache listening on ${APACHE_PORT}"
+
+  # Railway's healthcheck is plain HTTP to the container with no
+  # X-Forwarded-Proto, and it only passes on 200. Because site_url is https,
+  # Mautic answers that with a 301 to https. Real traffic arrives through the
+  # edge, which sets the header; only the healthcheck host needs it added here
+  # (trusted_proxies already trusts the header).
+  a2enmod headers >/dev/null 2>&1 || true
+  cat > /etc/apache2/conf-available/railway-healthcheck.conf <<'CONF'
+<If "%{HTTP_HOST} == 'healthcheck.railway.app'">
+    RequestHeader set X-Forwarded-Proto "https"
+</If>
+CONF
+  a2enconf railway-healthcheck >/dev/null 2>&1 || true
   apache2ctl -t || true
 fi
 
