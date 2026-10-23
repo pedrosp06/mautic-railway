@@ -266,6 +266,15 @@ if [ "$ROLE" = "mautic_web" ] && installed_marker_present; then
     || log "plugins:reload failed; continuing"
   as_www_data php bin/console cache:clear --no-interaction \
     || log "cache:clear failed; continuing"
+elif [ "$ROLE" != "mautic_web" ] && installed_marker_present; then
+  # The Dockerfile installs symfony/amazon-mailer with --no-scripts, which skips
+  # the cache rebuild, so the image ships a compiled container with no ses+smtp
+  # transport factory. The web role rebuilds it above; worker and cron must too,
+  # or queued mail is discarded with "Unknown DSN scheme" after three retries
+  # while the History still says "Email sent".
+  log "rebuilding cache for ${ROLE}"
+  as_www_data php bin/console cache:clear --no-interaction \
+    || log "cache:clear failed; continuing"
 fi
 
 # Mautic writes application errors to a rotating file under var/logs and sends
